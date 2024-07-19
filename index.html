@@ -1,0 +1,257 @@
+<html>
+
+<head>
+  <title>建築物モデルと点群を比較するマップ</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel='stylesheet' />
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+  <link href="maplibre-gl-compare.css" rel='stylesheet' />
+  <script src="maplibre-gl-compare.js"></script>
+  <script src="https://unpkg.com/deck.gl@^8.9.0/dist.min.js"></script>
+  <script src="https://unpkg.com/@loaders.gl/3d-tiles@^2.3.0/dist/dist.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+    }
+
+    #map {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 100%;
+    }
+  </style>
+</head>
+
+<body>
+  <style>
+    body {
+      overflow: hidden;
+    }
+
+    body * {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+    }
+
+    .map {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 100%;
+    }
+
+    #credits {
+      position: absolute;
+      bottom: 0;
+      right: 0;
+      padding: 2px;
+      font-size: 12px;
+      color: #000000;
+      text-shadow: none;
+      background-color: rgba(255, 255, 255, 0.7);
+    }
+
+    #credits a {
+      color: #000000;
+      pointer-events: auto;
+    }
+  </style>
+  <div id="comparison-container">
+    <div id="before" class="map"></div>
+    <div id="after" class="map"></div>
+  </div>
+  <div id="credits"></div>
+  <script type="text/javascript">
+    // クレジット表示
+    const creditsElement = document.getElementById('credits');
+    creditsElement.innerHTML = `<a href="https://www.pref.shizuoka.jp/machizukuri/1049255/1052183.html" target="_blank">VIRTUAL SHIZUOKA 3次元点群データ</a> | <a href="https://github.com/Project-PLATEAU/plateau-streaming-tutorial" target="_blank">3D都市モデルPLATEAU配信サービス（試験運用）</a>`;
+
+    // マップの初期化
+    const beforeMap = new maplibregl.Map({
+      container: 'before',
+      style: {
+        version: 8,
+        sources: {},
+        layers: []
+      },
+      hash: true,
+      zoom: 18,
+      center: [138.8598006, 35.1026494],
+      pitch: 60,
+      maxPitch: 85,
+      bearing: 0,
+      hash: true,
+      attributionControl: false,
+    })
+
+    // スケール表示
+    beforeMap.addControl(new maplibregl.ScaleControl({
+      maxWidth: 200,
+      unit: 'metric'
+    }));
+
+    // 環境光を作成
+    const ambientLight1 = new deck.AmbientLight({
+      color: [255, 255, 255],
+      intensity: 3.0
+    });
+
+    // 環境光を作成
+    const ambientLight2 = new deck.AmbientLight({
+      color: [255, 255, 255],
+      intensity: 3.0
+    });
+
+    // 平行ライト作成
+    const directionalLight1 = new deck.DirectionalLight({
+      color: [255, 255, 255],
+      intensity: 9.0,
+      direction: [-3, -9, -1]
+    });
+
+    // ライティングエフェクトを作成
+    const lightingEffect1 = new deck.LightingEffect({ ambientLight1, directionalLight1 });
+    const lightingEffect2 = new deck.LightingEffect({ ambientLight2 });
+
+    // マップの初期化
+    beforeMap.on('load', () => {
+      // PLATEAUオルソ画像タイルソース
+      beforeMap.addSource('plateau-ortho', {
+        type: 'raster',
+        tiles: [
+          'https://gic-plateau.s3.ap-northeast-1.amazonaws.com/2020/ortho/tiles/{z}/{x}/{y}.png'
+        ],
+        maxzoom: 19,
+        minzoom: 10,
+        attribution: "<a href='https://github.com/Project-PLATEAU/plateau-streaming-tutorial' target='_blank'>PLATEAU配信サービス（試験運用）</a>"
+      });
+
+      // PLATEAUオルソ画像タイルレイヤ
+      beforeMap.addLayer({
+        id: 'plateau-ortho',
+        type: 'raster',
+        source: 'plateau-ortho'
+      });
+
+      // 不透明度の初期表示
+      beforeMap.setPaintProperty(
+        'plateau-ortho',
+        'raster-opacity',
+        1.0
+      );
+
+      // MapboxOverlayを使ったインターリーブ
+      const plateauoverlay = new deck.MapboxOverlay({
+        interleaved: true,
+        layers: [
+          // 建築物モデル（3D Tiles）レイヤ
+          new deck.Tile3DLayer({
+            id: 'plateau-3dtiles',
+            pointSize: 1,
+            data: 'https://assets.cms.plateau.reearth.io/assets/9b/712e0c-ffce-40d1-8459-e3199abb925a/22203_numazu-shi_2021_3dtiles_4_op_bldg_lod3/tileset.json',
+            opacity: 1,
+            pickable: true,
+            // 【参考】https://github.com/nagix/mt3d-plugin-plateau
+            onTilesetLoad: (tileset) => {
+              const { cartographicCenter } = tileset;
+              const [longitude, latitude] = cartographicCenter;
+              console.log(longitude, latitude);
+            },
+            onTileLoad: d => {
+              const { content } = d;
+              content.cartographicOrigin.z -= 40.4450 + 9.3;
+            }
+          })
+        ],
+        effects: [
+          lightingEffect1
+        ],
+      });
+      beforeMap.addControl(plateauoverlay);
+    })
+
+    // マップの初期化
+    const afterMap = new maplibregl.Map({
+      container: 'after',
+      style: {
+        version: 8,
+        sources: {},
+        layers: []
+      },
+      hash: true,
+      zoom: 18,
+      center: [138.8598006, 35.1026494],
+      pitch: 60,
+      maxPitch: 85,
+      bearing: 0,
+      hash: true,
+      attributionControl: false,
+    })
+
+    // ズーム・回転
+    afterMap.addControl(new maplibregl.NavigationControl());
+
+    // フルスクリーンモードのオンオフ
+    afterMap.addControl(new maplibregl.FullscreenControl());
+
+    // 現在位置表示
+    afterMap.addControl(new maplibregl.GeolocateControl({
+      positionOptions: {
+        enableHighAccuracy: false
+      },
+      fitBoundsOptions: { maxZoom: 18 },
+      trackUserLocation: true,
+      showUserLocation: true
+    }));
+
+    // スケール表示
+    afterMap.addControl(new maplibregl.ScaleControl({
+      maxWidth: 200,
+      unit: 'metric'
+    }));
+
+    // Attributionを折りたたみ表示
+    afterMap.addControl(new maplibregl.AttributionControl({
+      compact: true
+    }));
+
+    afterMap.on('load', () => {
+      // MapboxOverlayを使ったインターリーブ
+      const lpoverlay = new deck.MapboxOverlay({
+        interleaved: true,
+        layers: [
+          // 3次元点群データ（3D iles）レイヤ
+          new deck.Tile3DLayer({
+            id: 'lp-3dtiles',
+            pointSize: 1,
+            data: 'https://d21pj9gigeop84.cloudfront.net/data/point-cloud/lp-2022/22203_numazu-shi/tileset.json',
+            loader: Tiles3DLoader,
+            opacity: 1,
+            pickable: true,
+            onTileLoad: d => {
+              const { content } = d;
+              content.cartographicOrigin.z -= 40.4450 + 9.3;
+            }
+          })
+        ],
+        effects: [
+          lightingEffect2
+        ],
+      });
+      afterMap.addControl(lpoverlay);
+    })
+
+    var container = "#comparison-container";
+    var map = new maplibregl.Compare(beforeMap, afterMap, container, {
+    });
+
+  </script>
+</body>
+
+</html>
